@@ -1,34 +1,62 @@
 import streamlit as st
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops
 
-st.title("Normalizador de Logotipos Web")
-st.write("Sube tu logo para centrarlo y unificarlo a 1400x800px")
+st.set_page_config(page_title="Normalizador de Logos Pro", layout="centered")
 
-uploaded_file = st.file_uploader("Elige un logo...", type=["png", "jpg", "jpeg", "webp"])
+st.title("Normalizador Visual de Logos")
+st.write("Unifica el tamaño de la tipografía automáticamente.")
+
+uploaded_file = st.file_uploader("Sube el logo original", type=["png", "jpg", "jpeg", "webp"])
 
 if uploaded_file is not None:
-    # Procesamiento técnico
+    # 1. Cargar imagen
     img = Image.open(uploaded_file).convert("RGBA")
     
-    # 1. Quitar márgenes originales (Crop)
-    bbox = img.getbbox()
-    img = img.crop(bbox)
-    
-    # 2. Definir dimensiones
+    # 2. Auto-crop: Quitar espacios vacíos alrededor
+    bg = Image.new(img.mode, img.size, img.getpixel((0,0)))
+    diff = ImageChops.difference(img, bg)
+    diff = ImageChops.add(diff, diff, 2.0, -100)
+    bbox = diff.getbbox()
+    if bbox:
+        img = img.crop(bbox)
+
+    # --- LÓGICA DE UNIFICACIÓN VISUAL ---
     canvas_w, canvas_h = 1400, 800
-    max_logo_w, max_logo_h = 900, 300 # El "área de peso visual"
     
-    # 3. Escalar proporcionalmente
-    img.thumbnail((max_logo_w, max_logo_h), Image.Resampling.LANCZOS)
+    # Queremos que la tipografía tenga una presencia constante.
+    # Ajustamos el tamaño basándonos en una altura fija para el cuerpo del logo.
+    target_height = 220 # Esta es la altura "maestra" para que todos se vean iguales
     
-    # 4. Crear lienzo blanco y pegar
+    aspect_ratio = img.width / img.height
+    new_h = target_height
+    new_w = int(new_h * aspect_ratio)
+    
+    # Si el logo es extremadamente largo, limitamos el ancho para que no se salga
+    if new_w > 1100:
+        new_w = 1100
+        new_h = int(new_w / aspect_ratio)
+
+    img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    
+    # 3. Crear lienzo blanco y centrar
     final_canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    offset = ((canvas_w - img.width) // 2, (canvas_h - img.height) // 2)
-    final_canvas.paste(img, offset, img)
+    offset = ((canvas_w - new_w) // 2, (canvas_h - new_h) // 2)
     
-    st.image(final_canvas, caption="Vista previa del logo normalizado")
+    # Pegar usando el canal alfa como máscara
+    final_canvas.paste(img_resized, offset, img_resized)
     
-    # Botón de descarga
-    final_canvas.save("logo_normalizado.png")
-    with open("logo_normalizado.png", "rb") as file:
-        st.download_button("Descargar Logo", file, "logo_web.png", "image/png")
+    # --- RESULTADO ---
+    st.image(final_canvas, caption="Logo Normalizado (Tamaño de fuente unificado)")
+    
+    # Preparar descarga
+    import io
+    buf = io.BytesIO()
+    final_canvas.save(buf, format="PNG")
+    byte_im = buf.getvalue()
+    
+    st.download_button(
+        label="Descargar Logo Final",
+        data=byte_im,
+        file_name="logo_web_unificado.png",
+        mime="image/png"
+    )
